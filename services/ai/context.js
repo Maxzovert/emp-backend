@@ -56,12 +56,12 @@ function expandTerms(message) {
 }
 
 function formatEmployeeLine(employee) {
-  return `- ${employee.name} | ${employee.department} | ${employee.position} | status: ${employee.status}`;
+  return `- ${employee.name} | ${employee.department} | ${employee.position} | ${employee.email} | status: ${employee.status}`;
 }
 
 function scoreEmployee(employee, terms) {
   const hay =
-    `${employee.name} ${employee.department} ${employee.position} ${employee.status}`.toLowerCase();
+    `${employee.name} ${employee.department} ${employee.position} ${employee.email} ${employee.status}`.toLowerCase();
 
   let score = 0;
   for (const term of terms) {
@@ -78,7 +78,7 @@ function wantsStats(message) {
 
 /**
  * Build grounded employee context for AI prompts.
- * Includes a short workforce summary when useful; caps people rows; omits email.
+ * Includes a short workforce summary when useful; caps people rows; includes email.
  */
 export async function buildEmployeeContext({ message = "" } = {}) {
   const { employees, source } = await loadEmployeesCached();
