@@ -10,22 +10,26 @@ import chatRoutes from "./routes/chat.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
-const isProd = process.env.NODE_ENV ;
+const isProd = process.env.NODE_ENV === "production";
 
 const app = express();
 
 function buildCorsOrigin() {
-  if (!isProd) {
-    return ["http://localhost:5173", "http://127.0.0.1:5173"];
-  }
-
-  // Separate frontend host (Vercel / Netlify / Render static) via env
   const allowed = [process.env.FRONTEND_URL, process.env.CLIENT_URL]
     .filter(Boolean)
     .flatMap((value) => value.split(","))
-    .map((value) => value.trim())
+    .map((value) => value.trim().replace(/\/$/, ""))
     .filter(Boolean);
 
+  if (!isProd) {
+    return [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      ...allowed,
+    ];
+  }
+
+  // Reflect request origin when unset; otherwise whitelist FRONTEND_URL
   return allowed.length > 0 ? allowed : true;
 }
 
