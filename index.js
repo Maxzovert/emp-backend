@@ -22,8 +22,23 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
+// Lightweight keep-alive for Render / uptime monitors (no auth, no DB)
+app.get("/health", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    status: "up",
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+  res.status(200).json({
+    ok: true,
+    status: "up",
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use("/api/auth", authRoutes);
