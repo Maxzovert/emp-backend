@@ -29,15 +29,38 @@ function validateMessage(message) {
 
 function toSafeError(error) {
   const raw = error?.message || "Unable to reach the AI service.";
-  const safe =
-    /api key|GOOGLE_API_KEY|GEMINI_API_KEY|OPENAI_API_KEY|AI_PROVIDER/i.test(raw)
-      ? raw
-      : "Unable to reach the AI service. Check your connection and try again.";
   console.error("[aiService]", raw);
-  return safe;
+
+  if (
+    /api key|API_KEY|not configured|Settings|401|403|permission|invalid.*key/i.test(
+      raw,
+    )
+  ) {
+    if (/api key|API_KEY|invalid.*key|401|403|permission/i.test(raw)) {
+      return "Your AI API key was rejected. Check the key in Settings → AI models.";
+    }
+    return raw.includes("Settings")
+      ? raw
+      : "No AI provider is configured. Add an API key in Settings → AI models.";
+  }
+
+  if (/404|not found|model/i.test(raw)) {
+    return "The selected AI model is unavailable. Try again or switch provider in Settings.";
+  }
+
+  if (/400|invalid argument|Bad Request/i.test(raw)) {
+    return "The AI provider rejected the request. Check your API key and try again.";
+  }
+
+  return "Unable to reach the AI service. Check your connection and try again.";
 }
 
-async function prepareChat({ message, history = [], contextOptions = {} }) {
+async function prepareChat({
+  message,
+  history = [],
+  contextOptions = {},
+  modelOptions = {},
+}) {
   const check = validateMessage(message);
   if (!check.ok) {
     return { success: false, error: check.error };
@@ -48,7 +71,7 @@ async function prepareChat({ message, history = [], contextOptions = {} }) {
     ...contextOptions,
   });
 
-  const llm = getChatModel();
+  const llm = getChatModel(modelOptions);
   const messages = buildChatMessages({
     userMessage: check.trimmed,
     employeeContext: context.text,
@@ -61,19 +84,23 @@ async function prepareChat({ message, history = [], contextOptions = {} }) {
     llm,
     messages,
     context,
+    provider: (modelOptions.provider || "gemini").toLowerCase(),
   };
 }
 
-/**
- * Public AI entry used by /api/chat (non-streaming).
- */
 export async function sendMessage({
   message,
   history = [],
   contextOptions = {},
+  modelOptions = {},
 }) {
   try {
-    const prepared = await prepareChat({ message, history, contextOptions });
+    const prepared = await prepareChat({
+      message,
+      history,
+      contextOptions,
+      modelOptions,
+    });
     if (!prepared.success) return prepared;
 
     const response = await prepared.llm.invoke(prepared.messages);
@@ -92,6 +119,7 @@ export async function sendMessage({
       meta: {
         contextRows: prepared.context.rowCount,
         contextSource: prepared.context.source,
+        provider: prepared.provider,
       },
     };
   } catch (error) {
@@ -99,18 +127,20 @@ export async function sendMessage({
   }
 }
 
-/**
- * Stream tokens for /api/chat SSE responses.
- * onToken(textChunk) is called as pieces arrive.
- */
 export async function streamMessage({
   message,
   history = [],
   contextOptions = {},
+  modelOptions = {},
   onToken,
 }) {
   try {
-    const prepared = await prepareChat({ message, history, contextOptions });
+    const prepared = await prepareChat({
+      message,
+      history,
+      contextOptions,
+      modelOptions,
+    });
     if (!prepared.success) return prepared;
 
     let full = "";
@@ -137,6 +167,7 @@ export async function streamMessage({
       meta: {
         contextRows: prepared.context.rowCount,
         contextSource: prepared.context.source,
+        provider: prepared.provider,
       },
     };
   } catch (error) {

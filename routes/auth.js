@@ -6,6 +6,7 @@ import {
   registerUser,
   updateCurrentUserProfile,
 } from "../services/authService.js";
+import { getUserAiSettings, updateUserAiSettings } from "../db/users.js";
 
 const router = Router();
 
@@ -70,6 +71,51 @@ router.patch("/profile", async (req, res) => {
   } catch (error) {
     console.warn("[auth/profile]", error?.message || error);
     res.status(500).json({ success: false, error: "Unable to update profile." });
+  }
+});
+
+router.get("/ai-settings", async (req, res) => {
+  try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: "Sign in required." });
+    }
+    const settings = await getUserAiSettings(user.id);
+    if (!settings) {
+      return res.status(404).json({ success: false, error: "User not found." });
+    }
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.warn("[auth/ai-settings GET]", error?.message || error);
+    res.status(500).json({
+      success: false,
+      error: "Unable to load AI settings.",
+    });
+  }
+});
+
+router.patch("/ai-settings", async (req, res) => {
+  try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: "Sign in required." });
+    }
+
+    const result = await updateUserAiSettings(user.id, {
+      provider: req.body?.provider,
+      geminiApiKey: req.body?.geminiApiKey,
+      openaiApiKey: req.body?.openaiApiKey,
+      clearGemini: Boolean(req.body?.clearGemini),
+      clearOpenai: Boolean(req.body?.clearOpenai),
+    });
+
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.warn("[auth/ai-settings PATCH]", error?.message || error);
+    res.status(500).json({
+      success: false,
+      error: "Unable to save AI settings.",
+    });
   }
 });
 

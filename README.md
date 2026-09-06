@@ -1,11 +1,14 @@
 ﻿# EmployeeAI — Backend
 
-Express API for EmployeeAI: authentication, employee CRUD, and LangChain AI chat (Gemini by default, OpenAI optional), backed by Neon Postgres.
+Express API for EmployeeAI: authentication, employee CRUD, per-user **AI provider settings** (Gemini / OpenAI), and LangChain chat — backed by Neon Postgres.
+
+> **Add your own API key.** Copy `.env.example` → `.env` and set `GOOGLE_API_KEY` / `OPENAI_API_KEY` with **your** credentials, or leave them blank and have each user paste a key under **Settings → AI models**. Do not commit real keys.
 
 **Live:** [https://emp-backend-4wcb.onrender.com](https://emp-backend-4wcb.onrender.com)  
 **Health:** [https://emp-backend-4wcb.onrender.com/health](https://emp-backend-4wcb.onrender.com/health)
 
-Companion UI: see [`../frontend`](../frontend) · [https://employeeai-blue.vercel.app](https://employeeai-blue.vercel.app)
+Companion UI: see [`../frontend`](../frontend) · [https://employeeai-blue.vercel.app](https://employeeai-blue.vercel.app)  
+Full HTTP reference: [`../API.md`](../API.md)
 
 ---
 
@@ -18,10 +21,11 @@ Companion UI: see [`../frontend`](../frontend) · [https://employeeai-blue.verce
 | Database | Neon Postgres (`@neondatabase/serverless`) |
 | Auth | `bcryptjs` + `jose` JWT cookie (`employeeai_session`) |
 | AI | LangChain + `@langchain/google-genai` / `@langchain/openai` |
+| Secrets | AES-256-GCM encryption for user API keys (`lib/auth/secrets.js`) |
 | CORS | `cors` + `FRONTEND_URL` allowlist |
 | Deploy | Render |
 
-If `DATABASE_URL` is missing or Neon is down, employee reads fall back to an in-memory demo store. Auth still requires a real database.
+If `DATABASE_URL` is missing, employee reads can fall back to an in-memory demo store. **Auth and AI settings require a real database.**
 
 ---
 
@@ -29,19 +33,23 @@ If `DATABASE_URL` is missing or Neon is down, employee reads fall back to an in-
 
 ```
 backend/
-├── index.js              # Express app entry
+├── index.js
 ├── routes/
-│   ├── auth.js           # /api/auth/*
-│   ├── employees.js      # /api/employees/*
-│   └── chat.js           # /api/chat (SSE)
-├── db/                   # Neon client, employees, users, seed helpers
-├── data/                 # Demo employee data / store
-├── lib/auth/             # session JWT + password hashing
+│   ├── auth.js           # auth + /ai-settings
+│   ├── employees.js
+│   └── chat.js           # SSE chat (uses resolveChatModelConfig)
+├── db/
+│   ├── users.js          # profile + encrypted AI keys + schema migrate
+│   ├── employees.js
+│   └── …
+├── lib/auth/
+│   ├── session.js
+│   ├── password.js
+│   └── secrets.js        # encrypt/decrypt user API keys
 ├── services/
 │   ├── authService.js
-│   └── ai/               # model, prompts, context, aiService
-├── utils/
-├── scripts/              # migrate, seed, run-with-env
+│   └── ai/               # model factory, prompts, context, stream
+├── scripts/
 ├── .env.example
 └── package.json
 ```
@@ -52,8 +60,8 @@ backend/
 
 - Node.js **18+** (20+ recommended)
 - npm
-- [Neon](https://neon.tech) Postgres connection string
-- Gemini API key ([Google AI Studio](https://aistudio.google.com/)) **or** OpenAI API key
+- Neon Postgres URL
+- **Your own** Gemini and/or OpenAI API key (for chat — via `.env` and/or Settings UI)
 
 ---
 
@@ -62,17 +70,30 @@ backend/
 ```bash
 cd backend
 cp .env.example .env
-```
+# fill DATABASE_URL, AUTH_SECRET
+# add YOUR OWN GOOGLE_API_KEY and/or OPENAI_API_KEY (or leave blank and use Settings → AI models)
 
-Fill `.env` (see below), then:
-
-```bash
 npm install
 npm run db:setup
 npm run dev
 ```
 
-API listens on **http://localhost:3001** (or `PORT`).
+API: **http://localhost:3001**
+
+On first authenticated AI-settings request, `users` gains columns:
+
+- `ai_provider`
+- `gemini_api_key_enc`
+- `openai_api_key_enc`
+
+### Get API keys
+
+| Provider | Where to create **your** key |
+|----------|------------------------------|
+| Gemini | [Google AI Studio](https://aistudio.google.com/apikey) |
+| OpenAI | [OpenAI API keys](https://platform.openai.com/api-keys) |
+
+Paste the key into `.env`, or sign in to the app and save it under **Settings → AI models**.
 
 ---
 
@@ -80,20 +101,18 @@ API listens on **http://localhost:3001** (or `PORT`).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes* | Neon Postgres URL (*needed for auth + persisted employees) |
-| `AUTH_SECRET` | Yes | Secret used to sign JWTs |
-| `PORT` | No | Default `3001` (Render injects `PORT`) |
-| `FRONTEND_URL` | Prod | Allowed CORS origin(s), comma-separated. Example: `https://employeeai-blue.vercel.app` |
-| `CLIENT_URL` | No | Alias of `FRONTEND_URL` |
-| `NODE_ENV` | Prod | `production` on Render |
-| `AI_PROVIDER` | No | `gemini` (default) or `openai` |
+| `DATABASE_URL` | Yes* | Neon URL |
+| `AUTH_SECRET` | Yes | JWT signing **and** AI key encryption material |
+| `PORT` | No | Default `3001` |
+| `FRONTEND_URL` | Prod | CORS origins (comma-separated) |
+| `AI_PROVIDER` | No | Fallback default: `gemini` or `openai` |
 | `AI_MODEL_NAME` | No | Default `gemini-3.5-flash-lite` |
-| `GOOGLE_API_KEY` | Gemini | Preferred Gemini key |
-| `GEMINI_API_KEY` | Gemini | Alternate Gemini key |
-| `OPENAI_API_KEY` | OpenAI | When `AI_PROVIDER=openai` |
-| `FRONTEND_DIST` | No | Optional path to a built SPA `index.html` to serve from this process |
+| `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Optional* | **Your own** Gemini key (unlocks Gemini globally) |
+| `OPENAI_API_KEY` | Optional* | **Your own** OpenAI key (unlocks OpenAI globally) |
+| `NODE_ENV` | Prod | `production` |
+| `FRONTEND_DIST` | No | Optional SPA static path |
 
-Example `.env`:
+\*Chat needs a key in env **or** a per-user key saved in Settings. Always use keys you own.
 
 ```env
 DATABASE_URL=postgresql://...
@@ -103,10 +122,10 @@ FRONTEND_URL=http://localhost:5173
 
 AI_PROVIDER=gemini
 AI_MODEL_NAME=gemini-3.5-flash-lite
-GOOGLE_API_KEY=your-key
+# Replace with YOUR keys — never commit real values
+GOOGLE_API_KEY=your-own-gemini-api-key
+# OPENAI_API_KEY=your-own-openai-api-key
 ```
-
-Never commit `.env`. Use `.env.example` as the template.
 
 ---
 
@@ -114,57 +133,107 @@ Never commit `.env`. Use `.env.example` as the template.
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start server with `.env` / `.env.local` via `scripts/run-with-env.mjs` |
-| `npm start` | Start server (uses process env — for Render) |
-| `npm run db:migrate` | Create `employees` table |
-| `npm run db:seed` | Upsert demo employees (`-- --reset` clears first) |
-| `npm run db:seed-users` | Ensure `users` table + demo account |
-| `npm run db:setup` | migrate + seed employees + seed users |
+| `npm run dev` | Dev server with `.env` |
+| `npm start` | Production (Render) |
+| `npm run db:migrate` | Employees schema |
+| `npm run db:seed` | Demo employees |
+| `npm run db:seed-users` | Users + demo account |
+| `npm run db:setup` | migrate + seeds |
 
 ---
 
-## API reference
+## API reference (summary)
 
 ### Health
 
-| Method | Path | Notes |
-|--------|------|--------|
-| `GET` | `/health` | Keep-alive for Render / uptime pings |
-| `GET` | `/api/health` | Same payload |
-
-Response shape: `{ ok, status, uptime, timestamp }`.
+| Method | Path |
+|--------|------|
+| `GET` | `/health` |
+| `GET` | `/api/health` |
 
 ### Auth — `/api/auth`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/register` | Body: `name`, `email`, `password`, optional `department`, `position` → sets cookie |
-| `POST` | `/login` | Body: `email`, `password` → sets cookie |
-| `POST` | `/logout` | Clears cookie |
-| `GET` | `/me` | Current user or `401` |
-| `PATCH` | `/profile` | Update name/email/department/position |
+| `POST` | `/register` | Create user + cookie |
+| `POST` | `/login` | Login + cookie |
+| `POST` | `/logout` | Clear cookie |
+| `GET` | `/me` | Current user |
+| `PATCH` | `/profile` | Update profile |
+| `GET` | `/ai-settings` | Provider list, lock/active state (**auth required**) |
+| `PATCH` | `/ai-settings` | Set provider / save or clear keys (**auth required**) |
 
-Session cookie: `employeeai_session` (HTTP-only). In production with `FRONTEND_URL` set, cookies use `SameSite=None; Secure` for cross-site clients. Prefer Vercel `/api` rewrites so cookies stay same-site.
+#### AI settings shapes
+
+**GET** returns (keys never included):
+
+```json
+{
+  "success": true,
+  "settings": {
+    "provider": "gemini",
+    "providers": [
+      {
+        "id": "gemini",
+        "label": "Gemini",
+        "configured": true,
+        "locked": false,
+        "hasUserKey": true,
+        "source": "user"
+      },
+      {
+        "id": "openai",
+        "label": "OpenAI",
+        "configured": false,
+        "locked": true,
+        "hasUserKey": false,
+        "source": null
+      }
+    ]
+  }
+}
+```
+
+`source`: `"user"` | `"server"` | `null`.
+
+**PATCH** body (all optional):
+
+```json
+{
+  "provider": "openai",
+  "geminiApiKey": "AIza…",
+  "openaiApiKey": "sk-…",
+  "clearGemini": false,
+  "clearOpenai": false
+}
+```
+
+Selecting a **locked** provider → `400`. User keys are encrypted with AES-256-GCM before storage.
 
 ### Employees — `/api/employees`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Query: `q`, `department` → list + departments metadata |
-| `POST` | `/` | Create employee |
-| `PATCH` | `/:id` | Update `status` (`active` \| `away` \| `inactive`) |
-| `DELETE` | `/:id` | Delete employee |
+| `GET` | `/` | `?q=&department=` |
+| `POST` | `/` | Create |
+| `PATCH` | `/:id` | Status: `active` \| `away` \| `inactive` |
+| `DELETE` | `/:id` | Delete |
 
 ### Chat — `/api/chat`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/` | Body: `{ message, history?, stream? }` |
+| `POST` | `/` | `{ message, history?, stream? }` |
 
-- Default `stream: true` → SSE (`text/event-stream`) with events: `status`, `token`, `done`, `error`
-- `stream: false` → JSON `{ success, message, meta }`
+Resolution order for the model:
 
-AI context is built from employee records (no emails), with a short cache (~30s). Model thinking is disabled for lower latency.
+1. Signed-in user’s `ai_provider` + decrypted user key (if any)  
+2. Else server env key for that provider  
+3. Else fallback to whichever server provider is available  
+4. If none → `503` with a message to configure Settings → AI models (**add your own API key**)  
+
+SSE events when `stream` is true (default): `status`, `token`, `done`, `error`.  
+`meta.provider` is included on successful replies.
 
 ---
 
@@ -175,28 +244,26 @@ AI context is built from employee records (no emails), with a short cache (~30s)
 | Email | `john.carter@employeeai.app` |
 | Password | `password123` |
 
+Use this account (or any registered user) to open **Settings → AI models** and **add your own API key**.
+
 ---
 
 ## Production behavior
 
-- **CORS** — whitelist from `FRONTEND_URL` / `CLIENT_URL`; localhost origins allowed in non-production
-- **Static SPA** — only if a built `index.html` exists under `FRONTEND_DIST`, `./public`, or `../frontend/dist`; otherwise API-only (typical on Render)
-- **Start command on Render** — `npm start`
-- **Health check path** — `/health`
+- **CORS** — `FRONTEND_URL` / `CLIENT_URL`; localhost allowed in non-prod  
+- **Static SPA** — only if `frontend/dist` (or `FRONTEND_DIST`) exists; otherwise API-only  
+- **Render start** — `npm start`  
+- **Health check** — `/health`
 
 ---
 
 ## Deploy (Render)
 
-1. Create a **Web Service**
-2. Root directory: `backend`
-3. Build: `npm install`
-4. Start: `npm start`
-5. Env: `DATABASE_URL`, `AUTH_SECRET`, `FRONTEND_URL`, `NODE_ENV=production`, AI keys + `AI_PROVIDER` / `AI_MODEL_NAME`
-6. Health check: `/health`
-7. Once: run `npm run db:setup` against the same database (local machine or Render shell)
-
-Optional: ping `/health` on a schedule to reduce free-tier spin-down.
+1. Root directory: `backend`
+2. Build: `npm install` · Start: `npm start`
+3. Env: `DATABASE_URL`, `AUTH_SECRET`, `FRONTEND_URL`, `NODE_ENV=production`, plus **your own** AI keys if you want server-wide unlock
+4. Health: `/health`
+5. Once: `npm run db:setup` on the same database
 
 ---
 
@@ -204,16 +271,17 @@ Optional: ping `/health` on a schedule to reduce free-tier spin-down.
 
 | Issue | Fix |
 |-------|-----|
-| `Missing DATABASE_URL` | Ensure `.env` has no UTF-8 BOM; `run-with-env` loads `.env.local` or `.env` |
-| Login fails / 401 | Run `npm run db:seed-users`; confirm `AUTH_SECRET` is stable across restarts |
-| CORS errors from Vercel | Set `FRONTEND_URL=https://employeeai-blue.vercel.app` (no trailing slash) and redeploy |
-| AI errors | Check `GOOGLE_API_KEY` / `GEMINI_API_KEY` or `OPENAI_API_KEY`; verify model id |
-| AI slow | Use `gemini-3.5-flash-lite`; Render cold starts add latency on first request |
-| `ENOENT` … `frontend/dist` | Safe to ignore on API-only deploys — static serving is skipped when dist is missing |
+| AI settings 401 | User must be signed in |
+| Provider locked | **Add your own API key** in Settings, or set server `GOOGLE_API_KEY` / `OPENAI_API_KEY` to a key you own |
+| Chat 503 not configured | No usable key — paste yours in Settings or `.env` |
+| Cannot switch to OpenAI | Unlock OpenAI first, then PATCH `provider` |
+| Encryption / decrypt fails | Keep `AUTH_SECRET` stable; changing it invalidates stored user keys |
+| CORS from Vercel | Set `FRONTEND_URL` to the exact frontend origin |
 
 ---
 
 ## Related
 
 - Frontend README: [`../frontend/README.md`](../frontend/README.md)
-- Monorepo overview: [`../README.md`](../README.md)
+- Root README: [`../README.md`](../README.md)
+- API instructions: [`../API.md`](../API.md)

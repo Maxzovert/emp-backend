@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { sendMessage, streamMessage } from "../services/ai/aiService.js";
+import { getCurrentUser } from "../services/authService.js";
+import { resolveChatModelConfig } from "../db/users.js";
 
 const router = Router();
 
@@ -19,8 +21,31 @@ router.post("/", async (req, res) => {
         .json({ success: false, error: "Message must be a string." });
     }
 
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: "Sign in required to use the assistant.",
+      });
+    }
+
+    const modelConfig = await resolveChatModelConfig(user.id);
+
+    if (!modelConfig.apiKey) {
+      return res.status(503).json({
+        success: false,
+        error:
+          "No AI provider is configured. Open Settings → AI models and add an API key.",
+      });
+    }
+
+    const modelOptions = {
+      provider: modelConfig.provider,
+      apiKey: modelConfig.apiKey,
+    };
+
     if (!stream) {
-      const result = await sendMessage({ message, history });
+      const result = await sendMessage({ message, history, modelOptions });
       const status = result.success
         ? 200
         : result.error?.includes("empty")
@@ -42,11 +67,12 @@ router.post("/", async (req, res) => {
     };
 
     try {
-      push({ type: "status", text: "started" });
+      push({ type: "status", text: "started", provider: modelConfig.provider });
 
       const result = await streamMessage({
         message,
         history,
+        modelOptions,
         onToken: (text) => push({ type: "token", text }),
       });
 
