@@ -19,13 +19,16 @@ export function getChatModel() {
       );
     }
 
+    // Prefer Flash-Lite for low latency. Override with AI_MODEL_NAME if needed.
     return new ChatGoogleGenerativeAI({
       apiKey,
-      model: modelName || "gemini-3.6-flash",
-      temperature: 0.3,
+      model: modelName || "gemini-3.5-flash-lite",
+      temperature: 0.2,
       maxRetries: 0,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 512,
       streaming: true,
+      // Disable extended thinking — biggest latency win on Gemini 3.x
+      thinkingConfig: { thinkingBudget: 0 },
     });
   }
 
@@ -38,9 +41,9 @@ export function getChatModel() {
     return new ChatOpenAI({
       apiKey,
       model: modelName || "gpt-4o-mini",
-      temperature: 0.3,
+      temperature: 0.2,
       maxRetries: 0,
-      maxTokens: 1024,
+      maxTokens: 512,
       streaming: true,
     });
   }

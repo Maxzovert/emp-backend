@@ -1,7 +1,20 @@
 import { listEmployees } from "../../db/employees.js";
 import { getDepartmentCounts, getWorkforceStats } from "../../utils/analyticsUtils.js";
 
-const MAX_ROWS = 12;
+const MAX_ROWS = 10;
+const CACHE_TTL_MS = 30_000;
+
+let cache = { at: 0, employees: null, source: null };
+
+async function loadEmployeesCached() {
+  const now = Date.now();
+  if (cache.employees && now - cache.at < CACHE_TTL_MS) {
+    return { employees: cache.employees, source: cache.source };
+  }
+  const { employees, source } = await listEmployees();
+  cache = { at: now, employees, source };
+  return { employees, source };
+}
 
 const ROLE_ALIASES = {
   pm: "product manager",
@@ -68,7 +81,7 @@ function wantsStats(message) {
  * Includes a short workforce summary when useful; caps people rows; omits email.
  */
 export async function buildEmployeeContext({ message = "" } = {}) {
-  const { employees, source } = await listEmployees();
+  const { employees, source } = await loadEmployeesCached();
 
   if (!employees.length) {
     return { text: "", rowCount: 0, source };
