@@ -1,0 +1,30 @@
+{
+  "name": "employee-ai-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node scripts/run-with-env.mjs index.js",
+    "start": "cross-env NODE_ENV=production node scripts/run-with-env.mjs index.js",
+    "db:migrate": "node scripts/run-with-env.mjs scripts/migrate.mjs",
+    "db:seed": "node scripts/run-with-env.mjs scripts/seed-employees.mjs",
+    "db:seed-users": "node scripts/run-with-env.mjs scripts/seed-users.mjs",
+    "db:setup": "npm run db:migrate && npm run db:seed && npm run db:seed-users"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.2.9",
+    "@langchain/google-genai": "^2.3.0",
+    "@langchain/openai": "^1.5.11",
+    "@neondatabase/serverless": "^1.0.1",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "jose": "^6.2.11"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "cross-env": "^10.0.0"
+  }
+}
