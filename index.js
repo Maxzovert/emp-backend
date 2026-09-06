@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import authRoutes from "./routes/auth.js";
@@ -8,14 +9,29 @@ import employeesRoutes from "./routes/employees.js";
 import chatRoutes from "./routes/chat.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.PORT) || 3000;
-const isProd = process.env.NODE_ENV === "production";
+const PORT = Number(process.env.PORT) || 3001;
+const isProd = process.env.NODE_ENV ;
 
 const app = express();
 
+function buildCorsOrigin() {
+  if (!isProd) {
+    return ["http://localhost:5173", "http://127.0.0.1:5173"];
+  }
+
+  // Separate frontend host (Vercel / Netlify / Render static) via env
+  const allowed = [process.env.FRONTEND_URL, process.env.CLIENT_URL]
+    .filter(Boolean)
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return allowed.length > 0 ? allowed : true;
+}
+
 app.use(
   cors({
-    origin: isProd ? true : ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: buildCorsOrigin(),
     credentials: true,
   }),
 );
@@ -45,19 +61,38 @@ app.use("/api/auth", authRoutes);
 app.use("/api/employees", employeesRoutes);
 app.use("/api/chat", chatRoutes);
 
-if (isProd) {
-  const dist = path.join(__dirname, "..", "frontend", "dist");
+// Serve SPA only when frontend was built into the deploy artifact.
+// On Render API-only deploys, frontend/dist is missing — skip silently.
+const distCandidates = [
+  process.env.FRONTEND_DIST,
+  path.join(__dirname, "public"),
+  path.join(__dirname, "..", "frontend", "dist"),
+].filter(Boolean);
+
+const dist = distCandidates.find((dir) =>
+  fs.existsSync(path.join(dir, "index.html")),
+);
+
+if (isProd && dist) {
   app.use(express.static(dist));
-  // Express 5 named wildcard (bare "*" is invalid)
   app.get("/{*path}", (req, res, next) => {
-    if (req.path.startsWith("/api")) return next();
+    if (req.path.startsWith("/api") || req.path === "/health") return next();
     res.sendFile(path.join(dist, "index.html"));
   });
+  console.log(`Serving frontend from ${dist}`);
+} else if (isProd) {
+  console.log(
+    "No frontend dist found — running API-only (set FRONTEND_URL for CORS).",
+  );
 }
 
 app.use((err, _req, res, _next) => {
   console.error("[server]", err);
-  res.status(500).json({ success: false, error: "Internal server error." });
+  const status = err.statusCode || err.status || 500;
+  res.status(status).json({
+    success: false,
+    error: status === 404 ? "Not found." : "Internal server error.",
+  });
 });
 
 app.listen(PORT, () => {

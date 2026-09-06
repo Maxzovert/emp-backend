@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "node scripts/run-with-env.mjs index.js",
-    "start": "cross-env NODE_ENV=production node scripts/run-with-env.mjs index.js",
+    "start": "node index.js",
     "db:migrate": "node scripts/run-with-env.mjs scripts/migrate.mjs",
     "db:seed": "node scripts/run-with-env.mjs scripts/seed-employees.mjs",
     "db:seed-users": "node scripts/run-with-env.mjs scripts/seed-users.mjs",
