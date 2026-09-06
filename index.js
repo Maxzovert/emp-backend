@@ -14,6 +14,9 @@ const isProd = process.env.NODE_ENV === "production";
 
 const app = express();
 
+// Render / Vercel sit behind reverse proxies — required for secure cookies.
+app.set("trust proxy", 1);
+
 function buildCorsOrigin() {
   const allowed = [process.env.FRONTEND_URL, process.env.CLIENT_URL]
     .filter(Boolean)
